@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  dbt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.0"
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --locked
+
+      - name: Install dbt packages
+        run: uv run dbt deps
+
+      - name: Lint SQL
+        run: uv run sqlfluff lint models tests
+
+      - name: Build and test (DuckDB, committed Parquet files)
+        run: uv run dbt build
+
+      - name: Rebuild incrementally and test again
+        run: uv run dbt build --select fct_sales+
+
+      - name: Validate semantic layer
+        run: uv run mf validate-configs
+
+      - name: Generate docs
+        run: uv run dbt docs generate

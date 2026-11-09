@@ -6,6 +6,7 @@ requires-python = "==3.12.*"
 name = "adventureworks-dbt"
 version = "0.1.0"
 source = { virtual = "." }
+default-groups = ["lint"]
 dependencies = [
     { name = "dbt-core" },
     { name = "dbt-duckdb" },
