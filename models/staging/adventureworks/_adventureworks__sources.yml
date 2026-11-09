@@ -1,0 +1,62 @@
+version: 2
+
+sources:
+  - name: adventureworks
+    description: >
+      AdventureWorksDW2022 (Microsoft sample data, MIT licence), treated as the
+      raw layer of a source system. On DuckDB the tables are read straight from
+      the Parquet files in data/raw/ (exported by scripts/extract.py). On
+      Snowflake they are tables in the raw schema, loaded by
+      scripts/load_snowflake.py.
+    schema: "{{ env_var('ADVENTUREWORKS_RAW_SCHEMA', 'raw') }}"
+    meta:
+      # Only the dbt-duckdb adapter reads this key; other adapters ignore it.
+      external_location: "data/raw/{name}.parquet"
+    config:
+      # The sample data is a static extract with no load timestamp, so
+      # freshness is not checked. In a live pipeline each table would get a
+      # loaded_at_field and warn_after / error_after thresholds.
+      freshness: null
+
+    tables:
+      - name: FactInternetSales
+        description: One row per order line sold online to an individual customer.
+        columns:
+          - name: SalesOrderNumber
+            data_tests: [not_null]
+          - name: SalesOrderLineNumber
+            data_tests: [not_null]
+      - name: FactResellerSales
+        description: >
+          One row per order line sold to a reseller (bike shop). Shares no
+          orders with FactInternetSales; the two facts must never be joined.
+        columns:
+          - name: SalesOrderNumber
+            data_tests: [not_null]
+          - name: SalesOrderLineNumber
+            data_tests: [not_null]
+      - name: DimDate
+        description: Calendar table, one row per day from 2005-01-01 to 2014-12-31.
+      - name: DimCustomer
+        description: Internet customers (individuals).
+      - name: DimGeography
+        description: City / state / country lookup used by customers and resellers.
+      - name: DimProduct
+        description: >
+          Products. A slowly changing dimension: a product (ProductAlternateKey)
+          can have several rows, one per cost/price version. Current rows have
+          Status = 'Current' and EndDate null. The EndDate of history rows is
+          earlier than their StartDate in this release of the sample, so it is
+          not used.
+      - name: DimProductSubcategory
+        description: Product subcategories (e.g. Mountain Bikes).
+      - name: DimProductCategory
+        description: Product categories (Bikes, Components, Clothing, Accessories).
+      - name: DimSalesTerritory
+        description: Sales territories (region, country, group).
+      - name: DimPromotion
+        description: Promotions and discounts applied to order lines.
+      - name: DimCurrency
+        description: ISO currency codes.
+      - name: DimReseller
+        description: Resellers (bike shops) that buy through the reseller channel.

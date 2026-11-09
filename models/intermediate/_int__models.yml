@@ -1,0 +1,71 @@
+version: 2
+
+models:
+  - name: int_products__versioned
+    description: >
+      Product versions with rebuilt SCD type 2 validity ranges
+      (valid_from / valid_to, half-open). See the SQL header for the rules.
+      The source keeps product history as rows (one per yearly cost/price
+      release), so the history is derived from those rows instead of a dbt
+      snapshot, which could only record changes from the day it starts
+      running.
+    columns:
+      - name: product_key
+        description: Surrogate key of one product version.
+        data_tests: [unique, not_null]
+      - name: product_number
+        description: Business key shared by all versions of a product.
+        data_tests: [not_null]
+      - name: version_number
+        description: 1 for the first version of a product, then 2, 3, ...
+        data_tests: [not_null]
+      - name: valid_from
+        description: First date the version applies (inclusive).
+        data_tests: [not_null]
+      - name: valid_to
+        description: >
+          First date the version no longer applies (exclusive). Null for the
+          current version.
+      - name: is_current
+        description: True for the version that is current today.
+        data_tests: [not_null]
+
+  - name: int_sales__unioned
+    description: >
+      Internet and reseller order lines in one shape, with a channel column
+      and the currency code. Built with UNION ALL: the two sources share no
+      orders and are never joined to each other.
+    columns:
+      - name: sales_line_key
+        description: Surrogate key (hash of channel, order number, line number).
+        data_tests: [unique, not_null]
+      - name: channel
+        description: Internet or Reseller.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [Internet, Reseller]
+
+unit_tests:
+  - name: test_product_validity_ranges
+    description: >
+      valid_to is the next version's start date; the last version of a
+      discontinued product ends at the next catalogue release; the current
+      version stays open.
+    model: int_products__versioned
+    given:
+      - input: ref('stg_adventureworks__products')
+        rows:
+          - {product_key: 1, product_number: "FR-1", source_start_date: "2011-07-01", is_current_in_source: false}
+          - {product_key: 2, product_number: "FR-1", source_start_date: "2012-07-01", is_current_in_source: false}
+          - {product_key: 3, product_number: "FR-1", source_start_date: "2013-07-01", is_current_in_source: true}
+          - {product_key: 4, product_number: "SO-1", source_start_date: "2011-07-01", is_current_in_source: false}
+          - {product_key: 5, product_number: "CA-1", source_start_date: "2003-07-01", is_current_in_source: true}
+    expect:
+      rows:
+        - {product_key: 1, version_number: 1, valid_from: "2011-07-01", valid_to: "2012-07-01", is_current: false}
+        - {product_key: 2, version_number: 2, valid_from: "2012-07-01", valid_to: "2013-07-01", is_current: false}
+        - {product_key: 3, version_number: 3, valid_from: "2013-07-01", valid_to: null, is_current: true}
+        - {product_key: 4, version_number: 1, valid_from: "2011-07-01", valid_to: "2012-07-01", is_current: false}
+        - {product_key: 5, version_number: 1, valid_from: "2003-07-01", valid_to: null, is_current: true}

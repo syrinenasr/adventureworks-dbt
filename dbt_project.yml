@@ -1,0 +1,33 @@
+name: adventureworks
+version: "1.0.0"
+config-version: 2
+profile: adventureworks
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # Days re-read before the latest loaded order date on incremental runs,
+  # so late or corrected order lines are picked up again.
+  sales_lookback_days: 3
+
+models:
+  adventureworks:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts
+
+snapshots:
+  adventureworks:
+    +schema: snapshots

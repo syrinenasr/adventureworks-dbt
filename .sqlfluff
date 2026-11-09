@@ -1,0 +1,43 @@
+[sqlfluff]
+dialect = duckdb
+templater = dbt
+max_line_length = 100
+# Staging models select source columns in their original PascalCase, which
+# is how the raw tables are named; identifier capitalisation is therefore
+# not enforced, and "City as city" style self-aliases are allowed. Columns
+# are ordered by meaning (keys, dates, measures), not by expression type.
+exclude_rules = capitalisation.identifiers, aliasing.self_alias.column, structure.column_order, structure.using
+
+[sqlfluff:templater:dbt]
+project_dir = .
+profiles_dir = .
+profile = adventureworks
+target = dev
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+
+[sqlfluff:indentation]
+tab_space_size = 4
+indent_unit = space
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:aliasing.table]
+aliasing = explicit
+
+[sqlfluff:rules:aliasing.column]
+aliasing = explicit
+
+[sqlfluff:rules:ambiguous.column_references]
+group_by_and_order_by_style = explicit

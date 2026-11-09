@@ -1,0 +1,163 @@
+version: 2
+
+# Semantic layer (MetricFlow). Each business metric has exactly one
+# definition here; dashboards, notebooks and tools query the metric instead
+# of re-writing the SQL. Definitions:
+#   revenue              sum of sales_amount (after discount, excl. tax and freight)
+#   gross_profit         sum of sales_amount - total_product_cost
+#   order_count          count distinct sales_order_number (not order lines)
+#   average_order_value  revenue / order_count
+
+semantic_models:
+  - name: sales
+    description: Order lines from both channels (fct_sales).
+    model: ref('fct_sales')
+    defaults:
+      agg_time_dimension: order_date
+    entities:
+      - name: sales_line
+        type: primary
+        expr: sales_line_key
+      - name: sales_order
+        type: foreign
+        expr: sales_order_number
+      - name: product
+        type: foreign
+        expr: product_key
+      - name: customer
+        type: foreign
+        expr: customer_key
+      - name: reseller
+        type: foreign
+        expr: reseller_key
+      - name: territory
+        type: foreign
+        expr: sales_territory_key
+    dimensions:
+      - name: order_date
+        type: time
+        type_params:
+          time_granularity: day
+      - name: channel
+        type: categorical
+    measures:
+      - name: sales_amount
+        description: Sum of line revenue.
+        agg: sum
+      - name: total_product_cost
+        description: Sum of the standard cost of units sold.
+        agg: sum
+      - name: gross_profit
+        description: Sum of sales_amount - total_product_cost.
+        agg: sum
+      - name: order_quantity
+        description: Sum of units sold.
+        agg: sum
+      - name: order_count
+        description: Number of distinct orders.
+        agg: count_distinct
+        expr: sales_order_number
+      - name: order_line_count
+        description: Number of order lines.
+        agg: count
+        expr: sales_line_key
+
+  - name: products
+    description: Product versions (dim_product).
+    model: ref('dim_product')
+    entities:
+      - name: product
+        type: primary
+        expr: product_key
+    dimensions:
+      - name: product_name
+        type: categorical
+      - name: product_category_name
+        type: categorical
+      - name: product_subcategory_name
+        type: categorical
+
+  - name: territories
+    description: Sales territories (dim_territory).
+    model: ref('dim_territory')
+    entities:
+      - name: territory
+        type: primary
+        expr: sales_territory_key
+    dimensions:
+      - name: sales_territory_group
+        type: categorical
+      - name: sales_territory_country
+        type: categorical
+
+  - name: customers
+    description: Internet customers (dim_customer).
+    model: ref('dim_customer')
+    entities:
+      - name: customer
+        type: primary
+        expr: customer_key
+    dimensions:
+      - name: country_name
+        type: categorical
+      - name: gender
+        type: categorical
+
+metrics:
+  - name: revenue
+    label: Revenue
+    description: Sales amount after discount, excluding tax and freight (SalesAmount in the source).
+    type: simple
+    type_params:
+      measure: sales_amount
+
+  - name: total_product_cost
+    label: Total product cost
+    description: Standard cost of the units sold.
+    type: simple
+    type_params:
+      measure: total_product_cost
+
+  - name: gross_profit
+    label: Gross profit
+    description: Revenue minus total product cost.
+    type: simple
+    type_params:
+      measure: gross_profit
+
+  - name: gross_margin
+    label: Gross margin
+    description: Gross profit as a share of revenue.
+    type: ratio
+    type_params:
+      numerator: gross_profit
+      denominator: revenue
+
+  - name: units_sold
+    label: Units sold
+    description: Sum of order quantity.
+    type: simple
+    type_params:
+      measure: order_quantity
+
+  - name: order_count
+    label: Orders
+    description: Number of distinct sales orders. Not the number of rows, which counts order lines.
+    type: simple
+    type_params:
+      measure: order_count
+
+  - name: order_line_count
+    label: Order lines
+    description: Number of order lines (rows in fct_sales).
+    type: simple
+    type_params:
+      measure: order_line_count
+
+  - name: average_order_value
+    label: Average order value
+    description: Revenue divided by the number of distinct orders.
+    type: ratio
+    type_params:
+      numerator: revenue
+      denominator: order_count

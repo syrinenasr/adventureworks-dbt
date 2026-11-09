@@ -1,0 +1,185 @@
+version: 2
+
+models:
+  - name: stg_adventureworks__internet_sales
+    description: >
+      Internet order lines from FactInternetSales, renamed to snake_case and
+      with dates cast from datetime to date. Grain: one row per order line.
+    columns:
+      - name: sales_order_number
+        description: Order number. Several lines share one order number.
+        data_tests: [not_null]
+      - name: sales_order_line_number
+        description: Line number within the order.
+        data_tests: [not_null]
+      - name: customer_key
+        description: Customer who placed the order.
+        data_tests: [not_null]
+      - name: sales_amount
+        description: Revenue of the line after discount, excluding tax and freight.
+        data_tests: [not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [sales_order_number, sales_order_line_number]
+
+  - name: stg_adventureworks__reseller_sales
+    description: >
+      Reseller order lines from FactResellerSales, renamed to snake_case and
+      with dates cast from datetime to date. Grain: one row per order line.
+    columns:
+      - name: sales_order_number
+        description: Order number. Several lines share one order number.
+        data_tests: [not_null]
+      - name: sales_order_line_number
+        description: Line number within the order.
+        data_tests: [not_null]
+      - name: reseller_key
+        description: Reseller that placed the order.
+        data_tests: [not_null]
+      - name: employee_key
+        description: Sales representative responsible for the order.
+      - name: sales_amount
+        description: Revenue of the line after discount, excluding tax and freight.
+        data_tests: [not_null]
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [sales_order_number, sales_order_line_number]
+
+  - name: stg_adventureworks__dates
+    description: Calendar days with calendar and fiscal attributes, from DimDate.
+    columns:
+      - name: date_key
+        description: Integer key in yyyymmdd form.
+        data_tests: [unique, not_null]
+      - name: date_day
+        description: The calendar date.
+        data_tests: [unique, not_null]
+
+  - name: stg_adventureworks__customers
+    description: >
+      Internet customers from DimCustomer. Single-letter codes are decoded
+      (gender, marital status) and contact details are dropped.
+    columns:
+      - name: customer_key
+        description: Surrogate key of the customer.
+        data_tests: [unique, not_null]
+      - name: customer_number
+        description: Business key of the customer (e.g. AW00011000).
+        data_tests: [unique, not_null]
+      - name: gender
+        description: Male or Female.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Male, Female]
+      - name: marital_status
+        description: Married or Single.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Married, Single]
+
+  - name: stg_adventureworks__geographies
+    description: Cities with their state, country and postal code, from DimGeography.
+    columns:
+      - name: geography_key
+        description: Surrogate key of the geography.
+        data_tests: [unique, not_null]
+
+  - name: stg_adventureworks__products
+    description: >
+      Product versions from DimProduct. EnglishProductName becomes
+      product_name. The source EndDate is not carried over because it is
+      earlier than StartDate on every history row in this release.
+    columns:
+      - name: product_key
+        description: Surrogate key of one product version.
+        data_tests: [unique, not_null]
+      - name: product_number
+        description: Business key of the product (ProductAlternateKey), shared by all its versions.
+        data_tests: [not_null]
+      - name: product_name
+        description: English product name.
+        data_tests: [not_null]
+      - name: source_start_date
+        description: Date from which this version applies (source StartDate).
+        data_tests: [not_null]
+      - name: is_current_in_source
+        description: True when the source marks the row Status = 'Current'.
+        data_tests: [not_null]
+
+  - name: stg_adventureworks__product_subcategories
+    description: Product subcategories from DimProductSubcategory.
+    columns:
+      - name: product_subcategory_key
+        description: Surrogate key of the subcategory.
+        data_tests: [unique, not_null]
+      - name: product_category_key
+        description: Parent category.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_adventureworks__product_categories')
+                field: product_category_key
+
+  - name: stg_adventureworks__product_categories
+    description: Product categories from DimProductCategory.
+    columns:
+      - name: product_category_key
+        description: Surrogate key of the category.
+        data_tests: [unique, not_null]
+      - name: product_category_name
+        description: Bikes, Components, Clothing or Accessories.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Bikes, Components, Clothing, Accessories]
+
+  - name: stg_adventureworks__sales_territories
+    description: Sales territories from DimSalesTerritory.
+    columns:
+      - name: sales_territory_key
+        description: Surrogate key of the territory.
+        data_tests: [unique, not_null]
+      - name: sales_territory_group
+        description: North America, Europe, Pacific, or NA for the placeholder row.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [North America, Europe, Pacific, NA]
+
+  - name: stg_adventureworks__promotions
+    description: Promotions from DimPromotion.
+    columns:
+      - name: promotion_key
+        description: Surrogate key of the promotion.
+        data_tests: [unique, not_null]
+
+  - name: stg_adventureworks__currencies
+    description: Currencies from DimCurrency.
+    columns:
+      - name: currency_key
+        description: Surrogate key of the currency.
+        data_tests: [unique, not_null]
+      - name: currency_code
+        description: ISO 4217 code, e.g. USD.
+        data_tests: [unique, not_null]
+
+  - name: stg_adventureworks__resellers
+    description: Resellers (bike shops) from DimReseller.
+    columns:
+      - name: reseller_key
+        description: Surrogate key of the reseller.
+        data_tests: [unique, not_null]
+      - name: reseller_number
+        description: Business key of the reseller.
+        data_tests: [unique, not_null]
+      - name: business_type
+        description: Size class of the shop.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Value Added Reseller, Specialty Bike Shop, Warehouse]

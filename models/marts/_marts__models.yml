@@ -1,0 +1,371 @@
+version: 2
+
+models:
+  - name: fct_sales
+    description: >
+      Sales fact, one row per order line, for both channels (Internet and
+      Reseller), built from int_sales__unioned. Incremental model: on each
+      run it re-reads the order lines from the last `sales_lookback_days`
+      days (default 3) before the latest loaded order_date and replaces them
+      with the delete+insert strategy on sales_line_key. delete+insert is
+      supported by both dbt-duckdb and dbt-snowflake and needs no MERGE.
+      Run with --full-refresh to rebuild from scratch.
+
+      Counting rows counts order lines; count distinct sales_order_number to
+      count orders. Use the metrics in the semantic layer (revenue,
+      gross_profit, order_count, ...) instead of re-deriving them.
+    columns:
+      - name: sales_line_key
+        description: Surrogate key (hash of channel, order number, line number).
+        data_tests: [unique, not_null]
+      - name: channel
+        description: Internet (sold online to individuals) or Reseller (sold to bike shops).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [Internet, Reseller]
+      - name: sales_order_number
+        description: Order number (degenerate dimension). Several lines share one order.
+        data_tests: [not_null]
+      - name: sales_order_line_number
+        description: Line number within the order.
+        data_tests: [not_null]
+      - name: product_key
+        description: Product version sold; joins to dim_product.product_key.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+      - name: customer_key
+        description: Customer, filled for Internet lines only.
+        data_tests:
+          - not_null:
+              config:
+                where: "channel = 'Internet'"
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+      - name: reseller_key
+        description: Reseller, filled for Reseller lines only.
+        data_tests:
+          - not_null:
+              config:
+                where: "channel = 'Reseller'"
+          - relationships:
+              arguments:
+                to: ref('dim_reseller')
+                field: reseller_key
+      - name: promotion_key
+        description: Promotion applied to the line; joins to dim_promotion.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_promotion')
+                field: promotion_key
+      - name: sales_territory_key
+        description: Territory credited with the sale; joins to dim_territory.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_territory')
+                field: sales_territory_key
+      - name: order_date
+        description: Date the order was placed; joins to dim_date.date_day.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+      - name: ship_date
+        description: Date the order was shipped.
+      - name: due_date
+        description: Date the order was due.
+      - name: days_to_ship
+        description: Days between order date and ship date.
+      - name: currency_code
+        description: Currency recorded on the line in the source (ISO 4217). Amounts are kept as stored in the source; no conversion is applied.
+        data_tests: [not_null]
+      - name: order_quantity
+        description: Units sold on the line.
+        data_tests: [not_null]
+      - name: unit_price
+        description: List price per unit on the line.
+      - name: unit_price_discount_pct
+        description: Discount rate applied to the unit price.
+      - name: extended_amount
+        description: order_quantity * unit_price, before discount.
+      - name: discount_amount
+        description: Discount given on the line.
+      - name: total_product_cost
+        description: Standard cost of the units sold.
+        data_tests: [not_null]
+      - name: sales_amount
+        description: Revenue of the line (after discount, excluding tax and freight). The source of the revenue metric.
+        data_tests: [not_null]
+      - name: gross_profit
+        description: sales_amount - total_product_cost.
+        data_tests: [not_null]
+      - name: tax_amount
+        description: Tax charged on the line.
+      - name: freight_amount
+        description: Freight charged on the line.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [sales_order_number, sales_order_line_number]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "order_quantity > 0 and sales_amount >= 0"
+
+  - name: dim_product
+    description: >
+      Product dimension, SCD type 2: one row per product version, with
+      valid_from / valid_to (half-open) and is_current. Facts carry the
+      version key (product_key), so they always show the attributes that
+      applied when the line was recorded. Filter is_current = true for one
+      row per product with today's attributes. About 98 discontinued
+      products have no current row.
+    columns:
+      - name: product_key
+        description: Surrogate key of the product version.
+        data_tests: [unique, not_null]
+      - name: product_number
+        description: Business key shared by all versions of a product (e.g. FR-M94B-38).
+        data_tests: [not_null]
+      - name: version_number
+        description: 1 for the first version of a product, then 2, 3, ...
+      - name: product_name
+        description: English product name (EnglishProductName in the source).
+        data_tests: [not_null]
+      - name: model_name
+        description: Product model, e.g. Mountain-100.
+      - name: product_subcategory_name
+        description: Subcategory, e.g. Mountain Bikes. Null for parts that are not sold.
+      - name: product_category_name
+        description: Bikes, Components, Clothing or Accessories. Null for parts that are not sold.
+      - name: product_description
+        description: English marketing description.
+      - name: color
+        description: Colour.
+      - name: size
+        description: Size code.
+      - name: size_range
+        description: Size range.
+      - name: weight
+        description: Weight in weight_unit.
+      - name: weight_unit
+        description: Unit of weight.
+      - name: product_line_code
+        description: R (road), M (mountain), T (touring), S (standard).
+      - name: class_code
+        description: H (high), M (medium), L (low).
+      - name: style_code
+        description: W (women), M (men), U (universal).
+      - name: is_finished_good
+        description: True when the product is sold, false for internal parts.
+      - name: days_to_manufacture
+        description: Days needed to manufacture the product.
+      - name: standard_cost
+        description: Standard cost in this version.
+      - name: list_price
+        description: List price in this version.
+      - name: dealer_price
+        description: Price to resellers in this version.
+      - name: valid_from
+        description: First date the version applies (inclusive).
+        data_tests: [not_null]
+      - name: valid_to
+        description: First date the version no longer applies (exclusive); null while current.
+      - name: is_current
+        description: True for the version that is current today.
+        data_tests: [not_null]
+    data_tests:
+      - dbt_utils.mutually_exclusive_ranges:
+          arguments:
+            lower_bound_column: valid_from
+            upper_bound_column: coalesce(valid_to, cast('9999-12-31' as date))
+            partition_by: product_number
+            gaps: allowed
+
+  - name: dim_customer
+    description: Internet customers with demographics and home geography. One row per customer.
+    columns:
+      - name: customer_key
+        description: Surrogate key of the customer.
+        data_tests: [unique, not_null]
+      - name: customer_number
+        description: Business key of the customer.
+        data_tests: [unique, not_null]
+      - name: full_name
+        description: First and last name.
+      - name: first_name
+        description: First name.
+      - name: last_name
+        description: Last name.
+      - name: birth_date
+        description: Date of birth.
+      - name: gender
+        description: Male or Female.
+      - name: marital_status
+        description: Married or Single.
+      - name: yearly_income
+        description: Declared yearly income band.
+      - name: total_children
+        description: Number of children.
+      - name: children_at_home
+        description: Number of children living at home.
+      - name: education
+        description: Highest education level.
+      - name: occupation
+        description: Occupation group.
+      - name: is_house_owner
+        description: True if the customer owns a house.
+      - name: cars_owned
+        description: Number of cars owned.
+      - name: commute_distance
+        description: Commute distance band.
+      - name: first_purchase_date
+        description: Date of the first purchase.
+      - name: city
+        description: Home city.
+      - name: state_province_name
+        description: Home state or province.
+      - name: country_code
+        description: ISO country code.
+        data_tests: [not_null]
+      - name: country_name
+        description: Country name.
+      - name: postal_code
+        description: Postal code.
+
+  - name: dim_reseller
+    description: Resellers (bike shops) with their geography. One row per reseller.
+    columns:
+      - name: reseller_key
+        description: Surrogate key of the reseller.
+        data_tests: [unique, not_null]
+      - name: reseller_number
+        description: Business key of the reseller.
+        data_tests: [unique, not_null]
+      - name: reseller_name
+        description: Shop name.
+      - name: business_type
+        description: Value Added Reseller, Specialty Bike Shop or Warehouse.
+      - name: employee_count
+        description: Number of employees.
+      - name: product_line
+        description: Main product line sold by the shop.
+      - name: annual_sales
+        description: Declared annual sales of the shop.
+      - name: annual_revenue
+        description: Declared annual revenue of the shop.
+      - name: year_opened
+        description: Year the shop opened.
+      - name: first_order_year
+        description: Year of the first order (source attribute).
+      - name: last_order_year
+        description: Year of the last order (source attribute).
+      - name: city
+        description: City.
+      - name: state_province_name
+        description: State or province.
+      - name: country_code
+        description: ISO country code.
+        data_tests: [not_null]
+      - name: country_name
+        description: Country name.
+      - name: postal_code
+        description: Postal code.
+
+  - name: dim_date
+    description: Calendar dimension, one row per day from 2005-01-01 to 2014-12-31, with calendar and fiscal attributes.
+    columns:
+      - name: date_day
+        description: The calendar date (primary key).
+        data_tests: [unique, not_null]
+      - name: date_key
+        description: Integer key in yyyymmdd form.
+        data_tests: [unique, not_null]
+      - name: day_of_week
+        description: 1 = Sunday ... 7 = Saturday.
+      - name: day_name
+        description: English day name.
+      - name: day_of_month
+        description: Day of the month.
+      - name: day_of_year
+        description: Day of the year.
+      - name: week_of_year
+        description: Week of the year.
+      - name: month_name
+        description: English month name.
+      - name: month_of_year
+        description: Month number, 1 to 12.
+      - name: calendar_quarter
+        description: Calendar quarter, 1 to 4.
+      - name: calendar_year
+        description: Calendar year.
+      - name: calendar_semester
+        description: Calendar semester, 1 or 2.
+      - name: fiscal_quarter
+        description: Fiscal quarter, 1 to 4.
+      - name: fiscal_year
+        description: Fiscal year.
+      - name: fiscal_semester
+        description: Fiscal semester, 1 or 2.
+      - name: month_start_date
+        description: First day of the month.
+      - name: is_weekend
+        description: True on Saturday and Sunday.
+
+  - name: dim_territory
+    description: Sales territories. One row per territory, including a placeholder row 'NA'.
+    columns:
+      - name: sales_territory_key
+        description: Surrogate key of the territory.
+        data_tests: [unique, not_null]
+      - name: sales_territory_region
+        description: Region, e.g. Northwest, France.
+      - name: sales_territory_country
+        description: Country.
+      - name: sales_territory_group
+        description: North America, Europe or Pacific.
+
+  - name: dim_promotion
+    description: Promotions and discounts. One row per promotion.
+    columns:
+      - name: promotion_key
+        description: Surrogate key of the promotion.
+        data_tests: [unique, not_null]
+      - name: promotion_name
+        description: Promotion name.
+      - name: promotion_type
+        description: Promotion type, e.g. Volume Discount.
+      - name: promotion_category
+        description: Reseller, Customer or No Discount.
+      - name: discount_pct
+        description: Discount rate.
+      - name: min_quantity
+        description: Minimum quantity for the promotion to apply.
+      - name: max_quantity
+        description: Maximum quantity for the promotion to apply.
+      - name: start_date
+        description: First day of the promotion.
+      - name: end_date
+        description: Last day of the promotion.
+
+  - name: metricflow_time_spine
+    description: Daily time spine for MetricFlow, one row per day of dim_date.
+    time_spine:
+      standard_granularity_column: date_day
+    columns:
+      - name: date_day
+        description: The calendar date.
+        granularity: day
+        data_tests: [unique, not_null]

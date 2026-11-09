@@ -1,0 +1,17 @@
+snapshots:
+  - name: snap_products
+    description: >
+      Change capture for products going forward. dim_product does not depend
+      on this snapshot: the source already holds product history as rows, so
+      the SCD type 2 dimension is derived from them (int_products__versioned).
+      This snapshot shows the pattern to use when a source overwrites rows in
+      place: from its first run it records every change in cost, price or
+      status as a new row with dbt_valid_from / dbt_valid_to. On the static
+      sample extract it keeps one row per product version.
+    relation: ref('stg_adventureworks__products')
+    config:
+      schema: snapshots
+      unique_key: product_key
+      strategy: check
+      check_cols: [standard_cost, list_price, dealer_price, is_current_in_source]
+      hard_deletes: invalidate
